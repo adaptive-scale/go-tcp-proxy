@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"regexp"
@@ -79,14 +80,14 @@ func main() {
 			p = proxy.New(conn, laddr, raddr)
 		}
 
-	}
-	if len(*rootCert) > 0 {
-		certData, err := ioutil.ReadFile(*rootCert)
-		if err != nil {
-			panic(fmt.Errorf("could not read certificate. err %w", err))
+		if len(*rootCert) > 0 {
+			certData, err := ioutil.ReadFile(*rootCert)
+			fmt.Println(certData, err)
+			if err != nil {
+				panic(fmt.Errorf("could not read certificate. err %w", err))
+			}
+			p.PemCert = string(certData)
 		}
-		p.PemCert = certData
-	}
 
 		p.Matcher = matcher
 		p.Replacer = replacer
