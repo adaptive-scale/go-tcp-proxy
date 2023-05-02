@@ -82,7 +82,6 @@ func main() {
 
 		if len(*rootCert) > 0 {
 			certData, err := ioutil.ReadFile(*rootCert)
-			fmt.Println(certData, err)
 			if err != nil {
 				panic(fmt.Errorf("could not read certificate. err %w", err))
 			}
