@@ -27,6 +27,7 @@ var (
 	unwrapTLS   = flag.Bool("unwrap-tls", false, "remote connection with TLS exposed unencrypted locally")
 	match       = flag.String("match", "", "match regex (in the form 'regex')")
 	replace     = flag.String("replace", "", "replace regex (in the form 'regex~replacer')")
+	rootCert    = flag.String("cert", "", "location of pem certificate")
 )
 
 func main() {
@@ -77,6 +78,15 @@ func main() {
 		} else {
 			p = proxy.New(conn, laddr, raddr)
 		}
+
+	}
+	if len(*rootCert) > 0 {
+		certData, err := ioutil.ReadFile(*rootCert)
+		if err != nil {
+			panic(fmt.Errorf("could not read certificate. err %w", err))
+		}
+		p.PemCert = certData
+	}
 
 		p.Matcher = matcher
 		p.Replacer = replacer

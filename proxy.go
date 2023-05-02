@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net"
 )
@@ -24,6 +25,7 @@ type Proxy struct {
 	Nagles    bool
 	Log       Logger
 	OutputHex bool
+	PemCert   string
 }
 
 // New - Create a new Proxy instance. Takes over local connection passed in,
@@ -60,7 +62,14 @@ func (p *Proxy) Start() {
 	var err error
 	//connect to remote
 	if p.tlsUnwrapp {
-		p.rconn, err = tls.Dial("tcp", p.tlsAddress, nil)
+		roots := x509.NewCertPool()
+		ok := roots.AppendCertsFromPEM([]byte(p.PemCert))
+		if !ok {
+			panic("failed to parse root certificate")
+		}
+		p.rconn, err = tls.Dial("tcp", p.tlsAddress, &tls.Config{
+			RootCAs: roots,
+		})
 	} else {
 		p.rconn, err = net.DialTCP("tcp", nil, p.raddr)
 	}
