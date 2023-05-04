@@ -2,21 +2,13 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"io/ioutil"
+	proxy "github.com/jpillora/go-tcp-proxy"
 	"net"
 	"os"
-	"regexp"
-	"strings"
-
-	proxy "github.com/jpillora/go-tcp-proxy"
 )
 
 var (
-	version = "0.0.0-src"
-	matchid = uint64(0)
-	connid  = uint64(0)
-	logger  proxy.ColorLogger
+	version = "1.1.0-src"
 
 	localAddr   = flag.String("l", ":9999", "local address")
 	remoteAddr  = flag.String("r", "localhost:80", "remote address")
@@ -26,6 +18,7 @@ var (
 	hex         = flag.Bool("h", false, "output hex")
 	colors      = flag.Bool("c", false, "output ansi colors")
 	unwrapTLS   = flag.Bool("unwrap-tls", false, "remote connection with TLS exposed unencrypted locally")
+	tlsEnabled  = flag.Bool("tls", false, "tls enabled")
 	match       = flag.String("match", "", "match regex (in the form 'regex')")
 	replace     = flag.String("replace", "", "replace regex (in the form 'regex~replacer')")
 	rootCert    = flag.String("cert", "", "location of pem certificate")
@@ -57,94 +50,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	matcher := createMatcher(*match)
-	replacer := createReplacer(*replace)
-
-	if *veryverbose {
-		*verbose = true
-	}
-
-	for {
-		conn, err := listener.AcceptTCP()
-		if err != nil {
-			logger.Warn("Failed to accept connection '%s'", err)
-			continue
-		}
-		connid++
-
-		var p *proxy.Proxy
-		if *unwrapTLS {
-			logger.Info("Unwrapping TLS")
-			p = proxy.NewTLSUnwrapped(conn, laddr, raddr, *remoteAddr)
+	var certloc string
+	if *tlsEnabled {
+		if *rootCert == "" {
+			logger.Warn("TLS enabled but no certificate provided, using default rds certs")
+			certloc = "/tmp/rds-combined-ca-bundle.pem"
 		} else {
-			p = proxy.New(conn, laddr, raddr)
-		}
-
-		if len(*rootCert) > 0 {
-			certData, err := ioutil.ReadFile(*rootCert)
-			if err != nil {
-				panic(fmt.Errorf("could not read certificate. err %w", err))
-			}
-			p.PemCert = string(certData)
-		}
-
-		p.Matcher = matcher
-		p.Replacer = replacer
-
-		p.Nagles = *nagles
-		p.OutputHex = *hex
-		p.Log = proxy.ColorLogger{
-			Verbose:     *verbose,
-			VeryVerbose: *veryverbose,
-			Prefix:      fmt.Sprintf("Connection #%03d ", connid),
-			Color:       *colors,
-		}
-
-		go p.Start()
-	}
-}
-
-func createMatcher(match string) func([]byte) {
-	if match == "" {
-		return nil
-	}
-	re, err := regexp.Compile(match)
-	if err != nil {
-		logger.Warn("Invalid match regex: %s", err)
-		return nil
-	}
-
-	logger.Info("Matching %s", re.String())
-	return func(input []byte) {
-		ms := re.FindAll(input, -1)
-		for _, m := range ms {
-			matchid++
-			logger.Info("Match #%d: %s", matchid, string(m))
+			certloc = *rootCert
 		}
 	}
-}
 
-func createReplacer(replace string) func([]byte) []byte {
-	if replace == "" {
-		return nil
+	tcpProxy := &proxy.TcpProxy{
+		Logger:           logger,
+		Listener:         listener,
+		LocalAddrString:  *localAddr,
+		RemoteAddrString: *remoteAddr,
+		Match:            *match,
+		LocalAddr:        laddr,
+		RemoteAddr:       raddr,
+		Verbose:          *veryverbose,
+		Replace:          *replace,
+		UnWrapTLS:        *unwrapTLS,
+		Nagle:            *nagles,
+		Hex:              *hex,
+		Color:            *colors,
+		RootCertLocation: certloc,
 	}
-	//split by / (TODO: allow slash escapes)
-	parts := strings.Split(replace, "~")
-	if len(parts) != 2 {
-		logger.Warn("Invalid replace option")
-		return nil
-	}
 
-	re, err := regexp.Compile(string(parts[0]))
-	if err != nil {
-		logger.Warn("Invalid replace regex: %s", err)
-		return nil
-	}
-
-	repl := []byte(parts[1])
-
-	logger.Info("Replacing %s with %s", re.String(), repl)
-	return func(input []byte) []byte {
-		return re.ReplaceAll(input, repl)
+	if err := tcpProxy.Start(); err != nil {
+		logger.Warn("Failed to start proxy: %s", err)
+		os.Exit(1)
 	}
 }
